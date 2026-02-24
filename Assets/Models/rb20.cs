@@ -8,6 +8,7 @@ public class CSVMovementPlayer : MonoBehaviour
     public string fileName = "f1_motion_dump/ALB_data.csv";
     public LayerMask groundLayer = ~0;   // all layers; narrow this in the Inspector if needed
     public float groundOffset = 0f;      // raise model slightly above ground if needed
+    public Vector3 rotationOffset = Vector3.zero; // fix model axis mismatch (e.g. set X to -90 if car faces down)
 
     private string filePath;
     private Rigidbody rb;
@@ -15,6 +16,7 @@ public class CSVMovementPlayer : MonoBehaviour
     void Start() {
         rb = GetComponent<Rigidbody>();
         rb.useGravity = false; // Y is handled by ground raycast, not gravity
+        rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
         filePath = Path.Combine(Application.streamingAssetsPath, fileName);
         StartCoroutine(PlayMovement());
     }
@@ -27,6 +29,20 @@ public class CSVMovementPlayer : MonoBehaviour
             // Smoothly snap Y to the terrain surface
             float newY = Mathf.Lerp(rb.position.y, targetY, Time.fixedDeltaTime * 20f);
             rb.MovePosition(new Vector3(rb.position.x, newY, rb.position.z));
+        }
+
+        // Rotate car to face movement direction (yaw only)
+        Vector3 flatVel = new Vector3(rb.velocity.x, 0f, rb.velocity.z);
+        if (flatVel.sqrMagnitude > 0.001f) {
+            // 1. Get the direction the car is moving
+            Quaternion lookRot = Quaternion.LookRotation(flatVel.normalized, Vector3.up);
+            
+            // 2. Apply ONLY the -90 degree X rotation offset
+            // We multiply lookRot by the Euler offset to rotate the model locally
+            Quaternion targetRot = lookRot * Quaternion.Euler(-90f, 0f, 0f);
+            
+            // 3. Smoothly rotate the Rigidbody
+            rb.MoveRotation(Quaternion.Slerp(rb.rotation, targetRot, Time.fixedDeltaTime * 15f));
         }
     }
 
