@@ -6,57 +6,53 @@ using System.IO;
 public class CSVMovementPlayer : MonoBehaviour
 {
     public string fileName = "f1_motion_dump/ALB_data.csv";
-    private string filePath;
+    public LayerMask groundLayer = ~0;   // all layers; narrow this in the Inspector if needed
+    public float groundOffset = 0f;      // raise model slightly above ground if needed
 
-    void Start()
-    {
+    private string filePath;
+    private Rigidbody rb;
+
+    void Start() {
+        rb = GetComponent<Rigidbody>();
+        rb.useGravity = false; // Y is handled by ground raycast, not gravity
         filePath = Path.Combine(Application.streamingAssetsPath, fileName);
         StartCoroutine(PlayMovement());
     }
-    IEnumerator PlayMovement()
-    {
-        if (!File.Exists(filePath))
-        {
-            Debug.LogError("CSV File not found at " + filePath);
-            yield break;
-        }
 
+    void FixedUpdate() {
+        // Raycast straight down to find the ground (works on slopes)
+        RaycastHit hit;
+        if (Physics.Raycast(rb.position + Vector3.up * 5f, Vector3.down, out hit, 20f, groundLayer)) {
+            float targetY = hit.point.y + groundOffset;
+            // Smoothly snap Y to the terrain surface
+            float newY = Mathf.Lerp(rb.position.y, targetY, Time.fixedDeltaTime * 20f);
+            rb.MovePosition(new Vector3(rb.position.x, newY, rb.position.z));
+        }
+    }
+
+    IEnumerator PlayMovement() {
+        yield return new WaitForSeconds(3f);
         string[] lines = File.ReadAllLines(filePath);
 
-        for (int i = 1; i < lines.Length - 1; i++) // Stop at Length - 1 to look ahead
-        {
-            // 1. Get Current Position
-            string[] currentValues = lines[i].Split(',');
-            Vector3 startPos = transform.position;
+        // Teleport to the starting XZ position
+        string[] firstValues = lines[1].Split(',');
+        rb.position = new Vector3(float.Parse(firstValues[1]), rb.position.y, float.Parse(firstValues[2]));
 
-            // 2. Get Next Position (The Target)
+        float stepDuration = 0.1f; // seconds between CSV rows
+
+        for (int i = 1; i < lines.Length - 1; i++) {
+            string[] curValues  = lines[i].Split(',');
             string[] nextValues = lines[i + 1].Split(',');
-            float nextX = float.Parse(nextValues[1]);
-            float nextZ = float.Parse(nextValues[2]);
-            float nextY = float.Parse(nextValues[3]);
-            Vector3 endPos = new Vector3(nextX, nextY, nextZ);
 
-            // 3. Interpolate over the 0.1s interval
-            float duration = 0.1f; 
-            float elapsed = 0f;
+            float vx = (float.Parse(nextValues[1]) - float.Parse(curValues[1])) / stepDuration;
+            float vz = (float.Parse(nextValues[2]) - float.Parse(curValues[2])) / stepDuration;
 
-            while (elapsed < duration)
-            {
-                // Calculate how far we are through the 0.1s window (0 to 1)
-                float t = elapsed / duration;
+            // Only drive XZ; Y is managed by FixedUpdate ground snap
+            rb.velocity = new Vector3(vx, 0f, vz);
 
-                // Smoothly move the model
-                transform.position = Vector3.Lerp(startPos, endPos, t);
-
-                // Optional: Make the car face where it's going
-                // if (startPos != endPos) 
-                // {
-                //     transform.forward = Vector3.Lerp(transform.forward, (endPos - startPos).normalized, t);
-                // }
-
-                elapsed += Time.deltaTime; // Time since last frame
-                yield return null; // Wait for the very next frame (e.g., 1/60th of a second)
-            }
+            yield return new WaitForSeconds(stepDuration);
         }
+
+        rb.velocity = Vector3.zero;
     }
 }
